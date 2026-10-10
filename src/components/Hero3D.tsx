@@ -31,11 +31,13 @@ function KineticSculpture({
   const ring2Ref = useRef<THREE.Mesh>(null!)
   const ring3Ref = useRef<THREE.Mesh>(null!)
   const satellitesGroupRef = useRef<THREE.Group>(null!)
+  const timeRef = useRef(0)
 
-  useFrame((state, delta) => {
+  useFrame((_, delta) => {
     if (!groupRef.current) return
 
-    const time = state.clock.getElapsedTime()
+    timeRef.current += delta
+    const time = timeRef.current
     const currentMouse = mouse.current || { x: 0, y: 0 }
 
     if (!prefersReducedMotion) {
