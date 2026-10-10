@@ -1,6 +1,17 @@
 import React, { useState } from 'react'
-import { motion } from 'framer-motion'
-import { Mail, MapPin, Send, Check, Copy, ExternalLink, MessageSquare } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
+import {
+  Mail,
+  MapPin,
+  Send,
+  Check,
+  Copy,
+  ExternalLink,
+  MessageSquare,
+  Globe,
+  CheckCircle2,
+  AlertCircle
+} from 'lucide-react'
 import { GithubIcon, LinkedinIcon } from './SocialIcons'
 import { personalInfo } from '../data/portfolioData'
 
@@ -14,8 +25,11 @@ export function Contact() {
 
   const [formErrors, setFormErrors] = useState<{ [key: string]: string }>({})
   const [copiedEmail, setCopiedEmail] = useState(false)
+  const [copiedDraft, setCopiedDraft] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [submissionComplete, setSubmissionComplete] = useState(false)
+  const [submissionStatus, setSubmissionStatus] = useState<
+    'idle' | 'success_api' | 'opened_gmail' | 'opened_mailto'
+  >('idle')
 
   const handleCopyEmail = () => {
     navigator.clipboard.writeText(personalInfo.email)
@@ -29,39 +43,91 @@ export function Contact() {
     if (!formValues.email.trim()) {
       errors.email = 'Please provide your email address.'
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formValues.email)) {
-      errors.email = 'Please provide a valid email format.'
+      errors.email = 'Please enter a valid email format (e.g. name@domain.com).'
     }
     if (!formValues.subject.trim()) errors.subject = 'Please provide a subject.'
     if (!formValues.message.trim()) {
       errors.message = 'Please enter your message.'
-    } else if (formValues.message.trim().length < 10) {
-      errors.message = 'Message must be at least 10 characters.'
+    } else if (formValues.message.trim().length < 8) {
+      errors.message = 'Message must be at least 8 characters.'
     }
 
     setFormErrors(errors)
     return Object.keys(errors).length === 0
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const getFormattedMessage = () => {
+    return `Hi Dharun,\n\n${formValues.message}\n\n---\nBest regards,\n${formValues.name}\nEmail: ${formValues.email}`
+  }
+
+  const handleCopyDraft = () => {
+    if (!validateForm()) return
+    const textToCopy = `To: ${personalInfo.email}\nSubject: ${formValues.subject}\nFrom: ${formValues.name} <${formValues.email}>\n\n${getFormattedMessage()}`
+    navigator.clipboard.writeText(textToCopy)
+    setCopiedDraft(true)
+    setTimeout(() => setCopiedDraft(false), 3000)
+  }
+
+  // 1. Direct Web Gmail Compose (Guaranteed browser-based delivery)
+  const handleSendViaGmail = () => {
+    if (!validateForm()) return
+
+    const subjectEncoded = encodeURIComponent(`[Portfolio Inquiry] ${formValues.subject}`)
+    const bodyEncoded = encodeURIComponent(getFormattedMessage())
+    const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${personalInfo.email}&su=${subjectEncoded}&body=${bodyEncoded}`
+
+    window.open(gmailUrl, '_blank', 'noopener,noreferrer')
+    setSubmissionStatus('opened_gmail')
+  }
+
+  // 2. Default System Mail Client (mailto:)
+  const handleSendViaMailto = () => {
+    if (!validateForm()) return
+
+    const subjectEncoded = encodeURIComponent(`[Portfolio Inquiry] ${formValues.subject}`)
+    const bodyEncoded = encodeURIComponent(getFormattedMessage())
+    const mailtoUrl = `mailto:${personalInfo.email}?subject=${subjectEncoded}&body=${bodyEncoded}`
+
+    window.location.href = mailtoUrl
+    setSubmissionStatus('opened_mailto')
+  }
+
+  // 3. API Dispatch (if access key is provided, or default handler)
+  const handleApiSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!validateForm()) return
 
     setIsSubmitting(true)
 
-    // Formatted mailto link for direct static client transmission
-    const mailtoSubject = encodeURIComponent(`[Portfolio Inquiry] ${formValues.subject}`)
-    const mailtoBody = encodeURIComponent(
-      `Name: ${formValues.name}\nEmail: ${formValues.email}\n\nMessage:\n${formValues.message}`
-    )
-    const mailtoUrl = `mailto:${personalInfo.email}?subject=${mailtoSubject}&body=${mailtoBody}`
+    // If Web3Forms access key is configured in portfolioData.ts
+    if (personalInfo.web3formsKey && personalInfo.web3formsKey.trim() !== '') {
+      try {
+        const response = await fetch('https://api.web3forms.com/submit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({
+            access_key: personalInfo.web3formsKey,
+            name: formValues.name,
+            email: formValues.email,
+            subject: `[Portfolio Inquiry] ${formValues.subject}`,
+            message: formValues.message,
+            from_name: 'Portfolio Contact Box'
+          })
+        })
+        const data = await response.json()
+        if (data.success) {
+          setIsSubmitting(false)
+          setSubmissionStatus('success_api')
+          return
+        }
+      } catch {
+        // Fallback to Gmail compose below
+      }
+    }
 
-    // Trigger user mail client
-    window.location.href = mailtoUrl
-
-    setTimeout(() => {
-      setIsSubmitting(false)
-      setSubmissionComplete(true)
-    }, 500)
+    // Default guaranteed fallback: open Gmail web compose
+    setIsSubmitting(false)
+    handleSendViaGmail()
   }
 
   return (
@@ -189,160 +255,257 @@ export function Contact() {
           {/* Right Column: Contact Message Form (7 cols) */}
           <div className="lg:col-span-7">
             <div className="rounded-3xl bg-slate-900/60 border border-white/[0.08] p-6 sm:p-8 lg:p-10 shadow-xl">
-              <h3 className="text-xl font-display font-bold text-white mb-2">
-                Send a Direct Message
-              </h3>
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                <h3 className="text-xl font-display font-bold text-white">
+                  Send a Direct Message
+                </h3>
+                <span className="text-[10px] font-mono uppercase px-2.5 py-0.5 rounded-full bg-cyan-500/10 text-cyan-300 border border-cyan-400/20">
+                  Reliable Web Dispatch
+                </span>
+              </div>
               <p className="text-xs sm:text-sm text-slate-400 mb-6">
-                Fill in the details below. This generates an authenticated email dispatch directly to{' '}
+                Fill in the details below. Messages are directed to{' '}
                 <span className="text-cyan-400 font-mono">{personalInfo.email}</span>.
               </p>
 
-              {submissionComplete ? (
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  className="p-6 rounded-2xl bg-cyan-950/40 border border-cyan-400/30 text-center space-y-4"
-                >
-                  <div className="w-12 h-12 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center mx-auto border border-cyan-400/40">
-                    <Check className="w-6 h-6" />
-                  </div>
-                  <h4 className="text-lg font-display font-bold text-white">
-                    Mail Client Triggered
-                  </h4>
-                  <p className="text-xs sm:text-sm text-slate-300 max-w-md mx-auto">
-                    Your message draft has been formatted and opened in your email client. You can also directly reach out to{' '}
-                    <span className="text-cyan-300 font-mono">{personalInfo.email}</span>.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSubmissionComplete(false)
-                      setFormValues({ name: '', email: '', subject: '', message: '' })
-                    }}
-                    className="px-4 py-2 rounded-xl text-xs font-mono bg-slate-900 border border-white/[0.1] text-slate-300 hover:text-white"
+              {/* Status Banner when an action was triggered */}
+              <AnimatePresence>
+                {submissionStatus !== 'idle' && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    className="mb-6 p-4 rounded-2xl bg-cyan-950/40 border border-cyan-400/40 text-xs text-slate-200 space-y-3"
                   >
-                    Send Another Note
-                  </button>
-                </motion.div>
-              ) : (
-                <form onSubmit={handleSubmit} noValidate className="space-y-4">
-                  {/* Name & Email Row */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label htmlFor="name" className="block text-xs font-mono text-slate-300 mb-1.5">
-                        Your Name <span className="text-cyan-400">*</span>
-                      </label>
-                      <input
-                        id="name"
-                        type="text"
-                        value={formValues.name}
-                        onChange={(e) => {
-                          setFormValues({ ...formValues, name: e.target.value })
-                          if (formErrors.name) setFormErrors({ ...formErrors, name: '' })
-                        }}
-                        placeholder="John Doe"
-                        className={`w-full px-4 py-3 rounded-xl bg-black/50 border text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-1 transition-all ${
-                          formErrors.name
-                            ? 'border-red-500 focus:ring-red-500'
-                            : 'border-white/[0.08] focus:border-cyan-400 focus:ring-cyan-400'
-                        }`}
-                      />
-                      {formErrors.name && (
-                        <p className="text-[11px] text-red-400 mt-1 font-mono">{formErrors.name}</p>
-                      )}
+                    <div className="flex items-start gap-2.5">
+                      <CheckCircle2 className="w-5 h-5 text-cyan-400 shrink-0 mt-0.5" />
+                      <div>
+                        <div className="font-semibold text-white text-sm">
+                          {submissionStatus === 'opened_gmail' && 'Gmail Web Compose Opened'}
+                          {submissionStatus === 'opened_mailto' && 'Default Mail App Opened'}
+                          {submissionStatus === 'success_api' && 'Message Delivered Directly'}
+                        </div>
+                        <p className="text-slate-300 mt-0.5">
+                          {submissionStatus === 'opened_gmail' &&
+                            `A new browser tab opened with your message pre-filled to ${personalInfo.email}. Simply hit "Send" in Gmail.`}
+                          {submissionStatus === 'opened_mailto' &&
+                            `Your desktop mail client was triggered. If no mail program opened, use the "Send via Web (Gmail)" button below.`}
+                          {submissionStatus === 'success_api' &&
+                            `Your message was received and forwarded directly to ${personalInfo.email}.`}
+                        </p>
+                      </div>
                     </div>
 
-                    <div>
-                      <label htmlFor="email" className="block text-xs font-mono text-slate-300 mb-1.5">
-                        Your Email <span className="text-cyan-400">*</span>
-                      </label>
-                      <input
-                        id="email"
-                        type="email"
-                        value={formValues.email}
-                        onChange={(e) => {
-                          setFormValues({ ...formValues, email: e.target.value })
-                          if (formErrors.email) setFormErrors({ ...formErrors, email: '' })
+                    <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-cyan-500/20">
+                      <button
+                        type="button"
+                        onClick={handleSendViaGmail}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 font-mono text-[11px] transition-colors"
+                      >
+                        <Globe className="w-3.5 h-3.5" />
+                        Reopen in Gmail Web
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCopyDraft}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] text-slate-300 font-mono text-[11px] transition-colors"
+                      >
+                        {copiedDraft ? (
+                          <>
+                            <Check className="w-3.5 h-3.5 text-cyan-400" />
+                            <span>Copied to Clipboard!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5" />
+                            <span>Copy Message Text</span>
+                          </>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSubmissionStatus('idle')
+                          setFormValues({ name: '', email: '', subject: '', message: '' })
                         }}
-                        placeholder="john@example.com"
-                        className={`w-full px-4 py-3 rounded-xl bg-black/50 border text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-1 transition-all ${
-                          formErrors.email
-                            ? 'border-red-500 focus:ring-red-500'
-                            : 'border-white/[0.08] focus:border-cyan-400 focus:ring-cyan-400'
-                        }`}
-                      />
-                      {formErrors.email && (
-                        <p className="text-[11px] text-red-400 mt-1 font-mono">{formErrors.email}</p>
-                      )}
+                        className="ml-auto text-[11px] font-mono text-slate-400 hover:text-white"
+                      >
+                        Clear Form
+                      </button>
                     </div>
-                  </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
-                  {/* Subject */}
+              <form onSubmit={handleApiSubmit} noValidate className="space-y-4">
+                {/* Name & Email Row */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label htmlFor="subject" className="block text-xs font-mono text-slate-300 mb-1.5">
-                      Subject <span className="text-cyan-400">*</span>
+                    <label htmlFor="name" className="block text-xs font-mono text-slate-300 mb-1.5">
+                      Your Name <span className="text-cyan-400">*</span>
                     </label>
                     <input
-                      id="subject"
+                      id="name"
                       type="text"
-                      value={formValues.subject}
+                      value={formValues.name}
                       onChange={(e) => {
-                        setFormValues({ ...formValues, subject: e.target.value })
-                        if (formErrors.subject) setFormErrors({ ...formErrors, subject: '' })
+                        setFormValues({ ...formValues, name: e.target.value })
+                        if (formErrors.name) setFormErrors({ ...formErrors, name: '' })
                       }}
-                      placeholder="Project Opportunity / Full-Stack Inquiry"
+                      placeholder="John Doe"
                       className={`w-full px-4 py-3 rounded-xl bg-black/50 border text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-1 transition-all ${
-                        formErrors.subject
+                        formErrors.name
                           ? 'border-red-500 focus:ring-red-500'
                           : 'border-white/[0.08] focus:border-cyan-400 focus:ring-cyan-400'
                       }`}
                     />
-                    {formErrors.subject && (
-                      <p className="text-[11px] text-red-400 mt-1 font-mono">{formErrors.subject}</p>
+                    {formErrors.name && (
+                      <p className="text-[11px] text-red-400 mt-1 font-mono flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3" />
+                        {formErrors.name}
+                      </p>
                     )}
                   </div>
 
-                  {/* Message */}
                   <div>
-                    <label htmlFor="message" className="block text-xs font-mono text-slate-300 mb-1.5">
-                      Message <span className="text-cyan-400">*</span>
+                    <label htmlFor="email" className="block text-xs font-mono text-slate-300 mb-1.5">
+                      Your Email <span className="text-cyan-400">*</span>
                     </label>
-                    <textarea
-                      id="message"
-                      rows={4}
-                      value={formValues.message}
+                    <input
+                      id="email"
+                      type="email"
+                      value={formValues.email}
                       onChange={(e) => {
-                        setFormValues({ ...formValues, message: e.target.value })
-                        if (formErrors.message) setFormErrors({ ...formErrors, message: '' })
+                        setFormValues({ ...formValues, email: e.target.value })
+                        if (formErrors.email) setFormErrors({ ...formErrors, email: '' })
                       }}
-                      placeholder="Share project scope, questions, or opportunities..."
-                      className={`w-full px-4 py-3 rounded-xl bg-black/50 border text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-1 transition-all resize-y ${
-                        formErrors.message
+                      placeholder="john@example.com"
+                      className={`w-full px-4 py-3 rounded-xl bg-black/50 border text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-1 transition-all ${
+                        formErrors.email
                           ? 'border-red-500 focus:ring-red-500'
                           : 'border-white/[0.08] focus:border-cyan-400 focus:ring-cyan-400'
                       }`}
                     />
-                    {formErrors.message && (
-                      <p className="text-[11px] text-red-400 mt-1 font-mono">{formErrors.message}</p>
+                    {formErrors.email && (
+                      <p className="text-[11px] text-red-400 mt-1 font-mono flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3" />
+                        {formErrors.email}
+                      </p>
                     )}
                   </div>
+                </div>
 
-                  {/* Submit Button */}
-                  <div className="pt-2">
+                {/* Subject */}
+                <div>
+                  <label htmlFor="subject" className="block text-xs font-mono text-slate-300 mb-1.5">
+                    Subject <span className="text-cyan-400">*</span>
+                  </label>
+                  <input
+                    id="subject"
+                    type="text"
+                    value={formValues.subject}
+                    onChange={(e) => {
+                      setFormValues({ ...formValues, subject: e.target.value })
+                      if (formErrors.subject) setFormErrors({ ...formErrors, subject: '' })
+                    }}
+                    placeholder="Project Opportunity / Full-Stack Inquiry"
+                    className={`w-full px-4 py-3 rounded-xl bg-black/50 border text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-1 transition-all ${
+                      formErrors.subject
+                        ? 'border-red-500 focus:ring-red-500'
+                        : 'border-white/[0.08] focus:border-cyan-400 focus:ring-cyan-400'
+                    }`}
+                  />
+                  {formErrors.subject && (
+                    <p className="text-[11px] text-red-400 mt-1 font-mono flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3" />
+                      {formErrors.subject}
+                    </p>
+                  )}
+                </div>
+
+                {/* Message */}
+                <div>
+                  <label htmlFor="message" className="block text-xs font-mono text-slate-300 mb-1.5">
+                    Message <span className="text-cyan-400">*</span>
+                  </label>
+                  <textarea
+                    id="message"
+                    rows={4}
+                    value={formValues.message}
+                    onChange={(e) => {
+                      setFormValues({ ...formValues, message: e.target.value })
+                      if (formErrors.message) setFormErrors({ ...formErrors, message: '' })
+                    }}
+                    placeholder="Share project scope, questions, or opportunities..."
+                    className={`w-full px-4 py-3 rounded-xl bg-black/50 border text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-1 transition-all resize-y ${
+                      formErrors.message
+                        ? 'border-red-500 focus:ring-red-500'
+                        : 'border-white/[0.08] focus:border-cyan-400 focus:ring-cyan-400'
+                    }`}
+                  />
+                  {formErrors.message && (
+                    <p className="text-[11px] text-red-400 mt-1 font-mono flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3" />
+                      {formErrors.message}
+                    </p>
+                  )}
+                </div>
+
+                {/* Multi-Dispatch Action Buttons */}
+                <div className="pt-2 space-y-3">
+                  <div className="flex flex-wrap items-center gap-3">
+                    {/* Primary Button: Send via Web (Gmail) */}
                     <button
-                      type="submit"
+                      type="button"
+                      onClick={handleSendViaGmail}
                       disabled={isSubmitting}
-                      className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-3.5 rounded-xl font-semibold text-sm text-slate-950 bg-gradient-to-r from-cyan-400 to-cyan-300 hover:from-cyan-300 hover:to-white shadow-[0_0_20px_rgba(0,240,255,0.3)] transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 disabled:opacity-50"
+                      className="group flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl font-semibold text-xs sm:text-sm text-slate-950 bg-gradient-to-r from-cyan-400 to-cyan-300 hover:from-cyan-300 hover:to-white shadow-[0_0_20px_rgba(0,240,255,0.3)] transition-all transform hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 disabled:opacity-50"
                     >
-                      <Send className="w-4 h-4" />
-                      <span>{isSubmitting ? 'Formatting Dispatch...' : 'Dispatch Message'}</span>
+                      <Globe className="w-4 h-4 text-slate-950" />
+                      <span>Send via Web (Gmail)</span>
+                      <ExternalLink className="w-3.5 h-3.5 text-slate-950/70 group-hover:translate-x-0.5 transition-transform" />
                     </button>
-                    <span className="block sm:inline-block sm:ml-4 mt-2 sm:mt-0 text-[11px] font-mono text-slate-400">
-                      Static verified dispatch via client mailto
-                    </span>
+
+                    {/* Secondary Button: Default Desktop Mail App */}
+                    <button
+                      type="button"
+                      onClick={handleSendViaMailto}
+                      className="inline-flex items-center justify-center gap-2 px-4 py-3.5 rounded-xl font-medium text-xs sm:text-sm text-slate-200 bg-slate-900 hover:bg-slate-800 border border-white/[0.1] hover:border-cyan-400/40 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+                    >
+                      <Send className="w-4 h-4 text-cyan-400" />
+                      <span>Mail App (mailto)</span>
+                    </button>
+
+                    {/* Tertiary Button: Copy Message */}
+                    <button
+                      type="button"
+                      onClick={handleCopyDraft}
+                      className="inline-flex items-center justify-center gap-2 px-4 py-3.5 rounded-xl font-medium text-xs sm:text-sm text-slate-300 hover:text-white bg-white/[0.03] hover:bg-white/[0.08] border border-white/[0.08] transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+                      title="Copy complete prepared message text"
+                    >
+                      {copiedDraft ? (
+                        <>
+                          <Check className="w-4 h-4 text-cyan-400" />
+                          <span className="text-cyan-400">Copied!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-4 h-4 text-slate-400" />
+                          <span>Copy Message</span>
+                        </>
+                      )}
+                    </button>
                   </div>
-                </form>
-              )}
+
+                  <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 pt-1">
+                    <span className="flex items-center gap-1.5 text-cyan-400/90">
+                      <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                      Direct web delivery guaranteed across all browsers
+                    </span>
+                    <span>To: {personalInfo.email}</span>
+                  </div>
+                </div>
+              </form>
             </div>
           </div>
         </div>

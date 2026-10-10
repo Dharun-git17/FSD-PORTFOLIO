@@ -29,7 +29,10 @@ export const personalInfo: PersonalInfo = {
       detailedDesc: 'Applying algorithmic logic, structured debugging, data structures, and continuous optimization to solve engineering challenges.',
       icon: 'Cpu'
     }
-  ]
+  ],
+  // Optional: Enter your free Web3Forms access key from https://web3forms.com
+  // to receive direct form submissions into dhaurnsenchit17@gmail.com without opening a mail client.
+  web3formsKey: ''
 }
 
 export const skillsData: SkillItem[] = [

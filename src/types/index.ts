@@ -54,4 +54,5 @@ export interface PersonalInfo {
     detailedDesc: string
     icon: string
   }[]
+  web3formsKey?: string
 }
